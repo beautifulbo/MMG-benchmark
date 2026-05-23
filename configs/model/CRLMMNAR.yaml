@@ -1,0 +1,26 @@
+# CRL-MMNAR model configuration
+# Adapted from the clinical prediction version for recommendation tasks
+
+# Embedding and architecture
+embedding_size: 64
+
+n_ui_layers: 2          # Number of user-item graph layers (collaborative filtering)
+n_mm_layers: 2          # Number of modality graph layers
+knn_k: 10               # KNN neighbors for modality graph construction
+
+# CRL-MMNAR specific parameters
+alpha: 0.4              # Adjacency update factor for missing modal generation
+lambda_1: 0.01          # Weight for disentanglement loss (InfoNCE)
+lambda_2: 0.01          # Weight for alignment loss
+
+# Temperature parameters for contrastive learning
+infoNCETemp: 0.4        # Temperature for InfoNCE loss (cross-modal alignment)
+alignBMTemp: 0.4        # Temperature for item-multimodal alignment
+alignUITemp: 0.2        # Temperature for user-item alignment
+
+# Cross-modal attention parameters
+num_attention_heads: 4   # Number of heads in cross-modal attention
+dropout_rate: 0.1       # Dropout rate throughout the network
+
+# Graph fusion parameters  
+graph_hidden_dim: 32    # Hidden dimension for graph modality fusion

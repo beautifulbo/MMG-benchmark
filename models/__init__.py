@@ -13,6 +13,10 @@ from .base.mi_estimator import CLUBSample
 from .dgmrec import DGMRec
 ModelRegistry._models['DGMRec'] = DGMRec
 
+# Import and register CRLMMNAR
+from .crlmmnar import CRLMMNAR
+ModelRegistry._models['CRLMMNAR'] = CRLMMNAR
+
 __all__ = [
     'ModelRegistry',
     'register_model',
@@ -25,4 +29,5 @@ __all__ = [
     'DiceLoss',
     'CLUBSample',
     'DGMRec',
+    'CRLMMNAR',
 ]
