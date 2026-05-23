@@ -542,8 +542,17 @@ class CRLMMNAR(GeneralRecommender):
             nn.init.xavier_uniform_(layer.weight)
 
     def init_mi_estimator(self):
-        """Initialize mutual information estimator (required by trainer)."""
-        pass  # CRL-MMNAR doesn't use CLUB estimator like DGMRec
+        """Initialize mutual information estimator (required by trainer).
+        
+        CRLMMNAR doesn't use CLUB estimator like DGMRec, but we need to provide
+        dummy attributes to be compatible with the training framework.
+        """
+        # Create dummy estimator modules for compatibility with train.py
+        # These are not used in CRLMMNAR's loss calculation
+        self.item_image_estimator = nn.Identity()
+        self.item_text_estimator = nn.Identity()
+        self.user_image_estimator = nn.Identity()
+        self.user_text_estimator = nn.Identity()
 
     def preprocess_missing_modal(self, config):
         """Preprocess missing modal items (similar to DGMRec)."""

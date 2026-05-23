@@ -40,10 +40,15 @@ class Trainer:
     Trainer for model training and evaluation.
     """
 
-    def __init__(self, config, model):
+    def __init__(self, config, model, wandb_monitor=None):
         self.config = config
         self.model = model
         self.logger = getLogger()
+        self.wandb_monitor = wandb_monitor
+
+        # Watch model gradients if wandb is enabled
+        if self.wandb_monitor and self.wandb_monitor.enabled:
+            self.wandb_monitor.watch_model(model)
 
         self.learner = config['learner']
         self.learning_rate = config['learning_rate']
@@ -151,6 +156,12 @@ class Trainer:
 
     def fit(self, train_data, valid_data=None, test_data=None, saved=False, save_dir=None, verbose=True):
         """Train the model."""
+        best_epoch = 0
+        
+        # Debug: Log save parameters at start of training
+        if verbose:
+            self.logger.info(f'[DEBUG] fit() called with: saved={saved}, save_dir={save_dir}')
+        
         for epoch_idx in range(self.start_epoch, self.epochs):
             training_start_time = time()
             self.model.pre_epoch_processing()
@@ -160,8 +171,13 @@ class Trainer:
                 break
             self.lr_scheduler.step()
 
+            # Get current learning rate
+            current_lr = self.lr_scheduler.get_last_lr()[0]
+
             self.train_loss_dict[epoch_idx] = sum(train_loss) if isinstance(train_loss, tuple) else train_loss
             training_end_time = time()
+            elapsed_time = training_end_time - training_start_time
+            
             train_loss_output = self._generate_train_loss_output(
                 epoch_idx, training_start_time, training_end_time, train_loss
             )
@@ -170,6 +186,15 @@ class Trainer:
                 self.logger.info(train_loss_output)
                 if post_info is not None:
                     self.logger.info(post_info)
+
+            # Log training metrics to wandb
+            if self.wandb_monitor and self.wandb_monitor.enabled:
+                self.wandb_monitor.log_train_metrics(
+                    epoch_idx=epoch_idx,
+                    train_loss=train_loss,
+                    lr=current_lr,
+                    elapsed_time=elapsed_time
+                )
 
             if (epoch_idx + 1) % self.eval_step == 0:
                 valid_start_time = time()
@@ -190,12 +215,49 @@ class Trainer:
                     self.logger.info(valid_result_output)
                     self.logger.info('test result: \n' + dict2str(test_result))
 
+                # Log evaluation metrics to wandb
+                if self.wandb_monitor and self.wandb_monitor.enabled:
+                    self.wandb_monitor.log_eval_metrics(
+                        epoch_idx=epoch_idx,
+                        valid_result=valid_result,
+                        test_result=test_result,
+                        valid_score=valid_score
+                    )
+
                 if update_flag:
+                    best_epoch = epoch_idx + 1
                     update_output = '██ ' + self.config['model'] + '--Best validation results updated!!!'
                     if verbose:
                         self.logger.info(update_output)
+                        self.logger.info(f'[DEBUG] update_flag=True, saved={saved}, save_dir={save_dir}, type(save_dir)={type(save_dir)}')
                     self.best_valid_result = valid_result
                     self.best_test_upon_valid = test_result
+                    
+                    # Save best model checkpoint
+                    if saved and save_dir:
+                        import os
+                        os.makedirs(save_dir, exist_ok=True)
+                        save_path = os.path.join(save_dir, 'best_model.pth')
+                        
+                        try:
+                            torch.save(self.model.state_dict(), save_path)
+                            if verbose:
+                                self.logger.info(f'✅ Best model saved to: {save_path}')
+                                # Verify file was created
+                                if os.path.exists(save_path):
+                                    file_size = os.path.getsize(save_path) / (1024 * 1024)  # MB
+                                    self.logger.info(f'   File size: {file_size:.2f} MB')
+                                else:
+                                    self.logger.error(f'   ❌ ERROR: File not created!')
+                        except Exception as e:
+                            if verbose:
+                                self.logger.error(f'❌ Failed to save model: {e}')
+                        
+                        # Upload to wandb artifacts
+                        if self.wandb_monitor and self.wandb_monitor.enabled:
+                            self.wandb_monitor.log_model_checkpoint(save_path)
+                    elif verbose:
+                        self.logger.warning(f'[WARNING] Model NOT saved: saved={saved}, save_dir={save_dir}')
 
                 if stop_flag:
                     stop_output = '+++++Finished training, best eval result in epoch %d' % (
@@ -205,16 +267,75 @@ class Trainer:
                         self.logger.info(stop_output)
                     break
 
+        # Log final best metrics to wandb
+        if self.wandb_monitor and self.wandb_monitor.enabled:
+            self.wandb_monitor.log_best_metrics(
+                best_valid_result=self.best_valid_result,
+                best_test_result=self.best_test_upon_valid,
+                best_epoch=best_epoch
+            )
+
+        # Save final model (even if no best model was saved during training)
+        if verbose:
+            self.logger.info(f'[DEBUG] Training finished. Final save check: saved={saved}, save_dir={save_dir}')
+        
+        if saved and save_dir:
+            import os
+            os.makedirs(save_dir, exist_ok=True)
+            
+            # Check if best model already exists
+            best_model_path = os.path.join(save_dir, 'best_model.pth')
+            final_model_path = os.path.join(save_dir, 'final_model.pth')
+            
+            # Always save the final model state
+            try:
+                torch.save(self.model.state_dict(), final_model_path)
+                if verbose:
+                    if os.path.exists(final_model_path):
+                        file_size = os.path.getsize(final_model_path) / (1024 * 1024)
+                        self.logger.info(f'✅ Final model saved to: {final_model_path} ({file_size:.2f} MB)')
+                    else:
+                        self.logger.error(f'❌ Failed to create: {final_model_path}')
+            except Exception as e:
+                if verbose:
+                    self.logger.error(f'❌ Error saving final model: {e}')
+            
+            if not os.path.exists(best_model_path):
+                # If no best model was saved during training, copy final as best
+                import shutil
+                try:
+                    shutil.copy(final_model_path, best_model_path)
+                    if verbose:
+                        self.logger.info(f'✅ No best model found during training. Copied final model to: {best_model_path}')
+                except Exception as e:
+                    if verbose:
+                        self.logger.error(f'❌ Error copying final to best: {e}')
+            else:
+                if verbose:
+                    self.logger.info(f'ℹ️  Best model already exists: {best_model_path}')
+        elif verbose:
+            self.logger.warning('[WARNING] Final model NOT saved (saved=False or save_dir=None)')
+
         return self.best_valid_score, self.best_valid_result, self.best_test_upon_valid
 
 
 def quick_start(model, dataset, config_dict, save_model=True):
     """Main entry point for training."""
     from utils.logger import init_logger
+    from utils.wandb_monitor import init_wandb_monitor
 
     config = Config(model, dataset, config_dict)
     init_logger(config)
     logger = getLogger()
+
+    # Initialize WandB monitoring (enabled by default)
+    wandb_enabled = config_dict.get('wandb_enabled', True)
+    wandb_project = config_dict.get('wandb_project', 'MMG-Benchmark')
+    wandb_monitor = init_wandb_monitor(
+        config=config,
+        project_name=wandb_project,
+        enabled=wandb_enabled
+    )
 
     logger.info('██Server: \t' + platform.node())
     logger.info('██Dir: \t' + os.getcwd() + '\n')
@@ -257,14 +378,26 @@ def quick_start(model, dataset, config_dict, save_model=True):
             idx + 1, total_loops, config['hyper_parameters'], hyper_tuple))
 
         train_data.pretrain_setup()
-        model = get_model(config['model'])(config, train_data).to(config['device'])
-        model.logger = logger
-        logger.info(model)
+        model_instance = get_model(config['model'])(config, train_data).to(config['device'])
+        model_instance.logger = logger
+        logger.info(model_instance)
 
-        trainer = Trainer(config, model)
+        trainer = Trainer(config, model_instance, wandb_monitor=wandb_monitor)
 
-        save_dir = config['save_name'][:-4] + "-" + str(hyper_tuple) if config.get('save_name') else None
-        model.save_dir = save_dir
+        # Generate save directory (use default path if not configured)
+        if config.get('save_name'):
+            save_dir = config['save_name'][:-4] + "-" + str(hyper_tuple)
+        else:
+            # Default: saved/{model_name}-{hyper_params}/
+            model_name = config['model']
+            hyper_str = "-".join(str(v) for v in hyper_tuple if v is not None)
+            save_dir = os.path.join(config.get('checkpoint_dir', 'saved'), f"{model_name}-{hyper_str}")
+        
+        model_instance.save_dir = save_dir
+        
+        # Log where model will be saved
+        if save_model:
+            logger.info(f'💾 Model will be saved to: {os.path.join(save_dir, "best_model.pth")}')
 
         best_valid_score, best_valid_result, best_test_upon_valid = trainer.fit(
             train_data, valid_data=valid_data, test_data=test_data, saved=save_model, save_dir=save_dir
@@ -295,6 +428,10 @@ def quick_start(model, dataset, config_dict, save_model=True):
         hyper_ret[best_test_idx][0],
         dict2str(hyper_ret[best_test_idx][1]),
         dict2str(hyper_ret[best_test_idx][2])))
+
+    # Finish wandb monitoring
+    if wandb_monitor:
+        wandb_monitor.finish()
 
 
 if __name__ == '__main__':
