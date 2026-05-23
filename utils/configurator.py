@@ -84,6 +84,10 @@ class Config:
             raise TypeError("index must be a str.")
         return key in self.final_config_dict
 
+    def get(self, key, default=None):
+        """Get config value with default fallback (dict-like behavior)."""
+        return self.final_config_dict.get(key, default)
+
     def __str__(self):
         args_info = '\n'
         args_info += '\n'.join(["{}={}".format(arg, value) for arg, value in self.final_config_dict.items()])

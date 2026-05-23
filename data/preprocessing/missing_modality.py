@@ -1,6 +1,6 @@
 """
 Preprocess dataset for missing modality scenarios.
-Generates missing_items_{ratio}.npy with item indices for each modality.
+Generates missing_items_{ratio}_{modality}.npy with item indices for each modality.
 """
 import os
 import pandas as pd
@@ -21,17 +21,31 @@ def split_arr_(arr, k=4):
     return res
 
 
-def preprocess_missing_modality(dataset_name, missing_ratio=2/3):
+def preprocess_missing_modality(dataset_name, missing_ratio=2/3, missing_modality='all'):
     """
     Preprocess dataset for missing modality setting.
 
     Args:
         dataset_name: Name of dataset (e.g., 'baby')
         missing_ratio: Ratio of items to have missing modalities (default 2/3)
+        missing_modality: Which modality to make missing ('text', 'image', 'all')
     """
-    missing_ratio_name = 0.666  # For file naming convenience
+    missing_ratio_name = round(missing_ratio, 3)
 
-    df = pd.read_csv(f"{dataset_name}/{dataset_name}.inter", sep='\t')
+    # Determine dataset path - support both direct and data/ subdirectory paths
+    if os.path.exists(f"data/{dataset_name}/{dataset_name}.inter"):
+        dataset_path = f"data/{dataset_name}"
+    elif os.path.exists(f"{dataset_name}/{dataset_name}.inter"):
+        dataset_path = dataset_name
+    else:
+        raise FileNotFoundError(
+            f"Dataset file not found. Tried:\n"
+            f"  - data/{dataset_name}/{dataset_name}.inter\n"
+            f"  - {dataset_name}/{dataset_name}.inter\n"
+            f"Please ensure the dataset is in the correct location."
+        )
+
+    df = pd.read_csv(f"{dataset_path}/{dataset_name}.inter", sep='\t')
     n_items = df['itemID'].nunique()
 
     df1 = df[df['x_label'] == 0]
@@ -65,26 +79,70 @@ def preprocess_missing_modality(dataset_name, missing_ratio=2/3):
     missing_items_ow = np.random.choice(old_items_warm, size=int(missing_ratio * len(old_items_warm)), replace=False)
     missing_items = np.concatenate((missing_items_nc, missing_items_nw, missing_items_oc, missing_items_ow))
 
-    mnc = split_arr_(missing_items_nc)
-    mnw = split_arr_(missing_items_nw)
-    moc = split_arr_(missing_items_oc)
-    mow = split_arr_(missing_items_ow)
-
+    # Distribute missing items based on specified modality type
     missing_items_dict = {}
-    missing_items_dict['t'] = np.concatenate((mnc[0], mnw[0], moc[0], mow[0]))
-    missing_items_dict['v'] = np.concatenate((mnc[1], mnw[1], moc[1], mow[1]))
-    missing_items_dict['all'] = np.concatenate((mnc[2], mnw[2], moc[2], mow[2],
-                                                mnc[3], mnw[3], moc[3], mow[3]))
 
-    os.makedirs(dataset_name, exist_ok=True)
-    np.save(f"{dataset_name}/missing_items_{missing_ratio_name}", missing_items_dict, allow_pickle=True)
-    print(f"Saved missing_items_{missing_ratio_name}.npy")
+    if missing_modality in ['text', 't']:
+        # All missing items are marked as text-only missing
+        missing_items_dict['t'] = missing_items
+        missing_items_dict['v'] = np.array([])
+        missing_items_dict['all'] = np.array([])
+        print(f"[Missing Modality] Mode: TEXT-ONLY")
+        print(f"  - Total missing items: {len(missing_items)}")
+        print(f"  - Items with missing TEXT: {len(missing_items_dict['t'])}")
+        print(f"  - Items with missing IMAGE: {len(missing_items_dict['v'])}")
+        print(f"  - Items with missing ALL: {len(missing_items_dict['all'])}")
+
+    elif missing_modality in ['image', 'v', 'visual']:
+        # All missing items are marked as image-only missing
+        missing_items_dict['t'] = np.array([])
+        missing_items_dict['v'] = missing_items
+        missing_items_dict['all'] = np.array([])
+        print(f"[Missing Modality] Mode: IMAGE-ONLY")
+        print(f"  - Total missing items: {len(missing_items)}")
+        print(f"  - Items with missing TEXT: {len(missing_items_dict['t'])}")
+        print(f"  - Items with missing IMAGE: {len(missing_items_dict['v'])}")
+        print(f"  - Items with missing ALL: {len(missing_items_dict['all'])}")
+
+    elif missing_modality == 'all':
+        # Original behavior: mixed distribution across t, v, and all
+        mnc = split_arr_(missing_items_nc)
+        mnw = split_arr_(missing_items_nw)
+        moc = split_arr_(missing_items_oc)
+        mow = split_arr_(missing_items_ow)
+
+        missing_items_dict['t'] = np.concatenate((mnc[0], mnw[0], moc[0], mow[0]))
+        missing_items_dict['v'] = np.concatenate((mnc[1], mnw[1], moc[1], mow[1]))
+        missing_items_dict['all'] = np.concatenate((mnc[2], mnw[2], moc[2], mow[2],
+                                                    mnc[3], mnw[3], moc[3], mow[3]))
+        print(f"[Missing Modality] Mode: ALL (mixed distribution)")
+        print(f"  - Total missing items: {len(missing_items)}")
+        print(f"  - Items with missing TEXT only: {len(missing_items_dict['t'])}")
+        print(f"  - Items with missing IMAGE only: {len(missing_items_dict['v'])}")
+        print(f"  - Items with missing ALL modalities: {len(missing_items_dict['all'])}")
+
+    else:
+        raise ValueError(f"Invalid missing_modality: {missing_modality}. Must be 'text', 'image', or 'all'")
+
+    # Generate filename with optional modality suffix
+    if missing_modality == 'all':
+        filename = f"{dataset_path}/missing_items_{missing_ratio_name}"
+    else:
+        modality_suffix = missing_modality.upper() if missing_modality not in ['t', 'v'] else ('TEXT' if missing_modality == 't' else 'IMAGE')
+        filename = f"{dataset_path}/missing_items_{missing_ratio_name}_{modality_suffix}"
+
+    os.makedirs(dataset_path, exist_ok=True)
+    np.save(f"{filename}.npy", missing_items_dict, allow_pickle=True)
+    print(f"\n[Saved] {filename}.npy")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description='Generate missing modality datasets')
     parser.add_argument('--dataset', '-d', type=str, default='baby', help='dataset name')
     parser.add_argument('--missing_ratio', '-r', type=float, default=0.666, help='missing ratio')
+    parser.add_argument('--modality', '-m', type=str, default='all',
+                        choices=['text', 't', 'image', 'v', 'visual', 'all'],
+                        help='which modality to make missing (text/image/all)')
     args = parser.parse_args()
 
-    preprocess_missing_modality(args.dataset, args.missing_ratio)
+    preprocess_missing_modality(args.dataset, args.missing_ratio, args.modality)

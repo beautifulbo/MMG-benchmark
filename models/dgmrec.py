@@ -159,16 +159,88 @@ class DGMRec(GeneralRecommender):
         self.optimizer_club = torch.optim.Adam(params, lr=1e-4)
 
     def preprocess_missing_modal(self, config):
-        dataset_path = os.path.abspath(config['data_path'] + config['dataset'])
+        # Try multiple possible dataset paths
+        possible_paths = [
+            os.path.join('data', config['dataset']),                    # data/baby/
+            os.path.abspath(config['data_path'] + config['dataset']),   # ../data/baby/
+            config['dataset'],                                           # baby/
+        ]
+
+        dataset_path = None
+        for path in possible_paths:
+            if os.path.exists(os.path.join(path, config['dataset'] + '.inter')):
+                dataset_path = path
+                break
+
+        if dataset_path is None:
+            raise FileNotFoundError(
+                f"Dataset directory not found. Tried:\n" +
+                "\n".join(f"  - {p}" for p in possible_paths) +
+                f"\nPlease ensure the dataset is in the correct location."
+            )
+
+        print(f"[DGMRec] Using dataset path: {dataset_path}")
 
         self.missing_modal = config['missing_modal']
         self.missing_ratio = config['missing_ratio']
-        self.missing_items = np.load(
-            os.path.join(dataset_path, f"missing_items_{self.missing_ratio}.npy"), allow_pickle=True
-        ).item()
+        self.missing_modality_type = config.get('missing_modality_type', 'all')
 
-        self.missing_items_t = np.concatenate((self.missing_items['all'], self.missing_items['t']))
-        self.missing_items_v = np.concatenate((self.missing_items['all'], self.missing_items['v']))
+        # Try to load file with modality suffix first, then fall back to original filename
+        modality_suffix_map = {
+            'text': 'TEXT',
+            't': 'TEXT',
+            'image': 'IMAGE',
+            'v': 'IMAGE',
+            'visual': 'IMAGE',
+            'all': ''
+        }
+
+        suffix = modality_suffix_map.get(self.missing_modality_type, '')
+
+        if suffix:
+            # New format: try with modality suffix first
+            filename_with_suffix = f"missing_items_{self.missing_ratio}_{suffix}"
+            filepath_with_suffix = os.path.join(dataset_path, f"{filename_with_suffix}.npy")
+
+            if os.path.exists(filepath_with_suffix):
+                self.missing_items = np.load(filepath_with_suffix, allow_pickle=True).item()
+                print(f"[DGMRec] Loaded missing items from: {filename_with_suffix}.npy")
+            else:
+                # Fall back to original format if new file doesn't exist
+                print(f"[DGMRec] Warning: {filename_with_suffix}.npy not found, falling back to default")
+                filename_default = f"missing_items_{self.missing_ratio}"
+                filepath_default = os.path.join(dataset_path, f"{filename_default}.npy")
+
+                if not os.path.exists(filepath_default):
+                    raise FileNotFoundError(
+                        f"Missing modality file not found: tried {filepath_with_suffix} and {filepath_default}"
+                    )
+
+                self.missing_items = np.load(filepath_default, allow_pickle=True).item()
+                print(f"[DGMRec] Loaded missing items from: {filename_default}.npy (fallback)")
+        else:
+            # Original format (all modalities or backward compatibility)
+            filename = f"missing_items_{self.missing_ratio}"
+            filepath = os.path.join(dataset_path, f"{filename}.npy")
+
+            if not os.path.exists(filepath):
+                raise FileNotFoundError(f"Missing modality file not found: {filepath}")
+
+            self.missing_items = np.load(filepath, allow_pickle=True).item()
+            print(f"[DGMRec] Loaded missing items from: {filename}.npy")
+
+        # Compute missing item indices - compatible with both old and new formats
+        has_all_key = 'all' in self.missing_items and len(self.missing_items['all']) > 0
+
+        if has_all_key:
+            # Old format or all-modality mode: combine 'all' with specific modalities
+            self.missing_items_t = np.concatenate((self.missing_items['all'], self.missing_items['t']))
+            self.missing_items_v = np.concatenate((self.missing_items['all'], self.missing_items['v']))
+        else:
+            # New single-modality format: use specific modality only
+            self.missing_items_t = self.missing_items.get('t', np.array([]))
+            self.missing_items_v = self.missing_items.get('v', np.array([]))
+
         self.complete_items = np.setdiff1d(
             np.arange(self.n_items), np.union1d(self.missing_items_v, self.missing_items_t)
         )
@@ -185,6 +257,11 @@ class DGMRec(GeneralRecommender):
 
         self.v_feat[self.missing_items_v] = image_mean
         self.t_feat[self.missing_items_t] = text_mean
+
+        print(f"[DGMRec] Missing modality type: {self.missing_modality_type}")
+        print(f"  - Items missing TEXT: {len(self.missing_items_t)}")
+        print(f"  - Items missing IMAGE: {len(self.missing_items_v)}")
+        print(f"  - Complete items (no missing): {len(self.complete_items)}")
 
     def pre_epoch_processing(self):
         item_image_g, item_text_g, item_image_s, item_text_s = self.mge()

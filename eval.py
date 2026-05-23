@@ -34,12 +34,16 @@ def main():
     parser.add_argument('--dataset', '-d', type=str, default='baby', help='name of datasets')
     parser.add_argument('--checkpoint', '-c', type=str, required=True, help='path to model checkpoint')
     parser.add_argument('--gpu_id', '-g', type=str, default='0', help='gpu_id')
+    parser.add_argument('--missing_modality_type', type=str, default='all',
+                        choices=['text', 't', 'image', 'v', 'visual', 'all'],
+                        help='which modality to make missing (text/image/all)')
     args = parser.parse_args()
 
     config_dict = {
         'gpu_id': args.gpu_id,
         'missing_modal': 1,
-        'missing_ratio': 0.666
+        'missing_ratio': 0.666,
+        'missing_modality_type': args.missing_modality_type
     }
 
     config = Config(args.model, args.dataset, config_dict)

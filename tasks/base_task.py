@@ -13,6 +13,7 @@ class BaseTask(nn.Module):
     """
 
     def __init__(self, config, model):
+        super(BaseTask, self).__init__()
         self.config = config
         self.model = model
         self.device = config['device']

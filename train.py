@@ -304,13 +304,17 @@ if __name__ == '__main__':
     parser.add_argument('--gpu_id', '-g', type=str, default='1', help='gpu_id')
     parser.add_argument('--missing_modal', type=int, default=1, help='missing_modal')
     parser.add_argument('--missing_ratio', type=str, default='0.666', help='missing_ratio')
+    parser.add_argument('--missing_modality_type', type=str, default='all',
+                        choices=['text', 't', 'image', 'v', 'visual', 'all'],
+                        help='which modality to make missing (text/image/all)')
 
     args, _ = parser.parse_known_args()
 
     config_dict = {
         'gpu_id': args.gpu_id,
         'missing_modal': args.missing_modal,
-        'missing_ratio': eval(args.missing_ratio)
+        'missing_ratio': eval(args.missing_ratio),
+        'missing_modality_type': args.missing_modality_type
     }
 
     quick_start(model=args.model, dataset=args.dataset, config_dict=config_dict, save_model=False)
