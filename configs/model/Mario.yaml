@@ -1,0 +1,57 @@
+# Mario Model Configuration
+# Stage 1: Feature Extractor with Distance-aware Attention
+# Stage 2: MAPR + LLM LoRA Fine-tuning (optional)
+
+# ========== Stage 1: Feature Extractor ==========
+embedding_size: 3584
+num_heads: 8
+buckets_num: 6
+n_layers: 6
+temperature: 0.07
+
+# Graph & Distance Matrix
+graph_path: null
+dist_matrix_path: null
+k_neighbors: 5
+
+# Missing Modality
+missing_modal: True
+missing_ratio: 0.3
+missing_modality_type: 'all'
+missing_strategy: 'mean'
+
+# ========== Stage 2: LLM Fine-tuning (optional) ==========
+use_stage2: False
+task_type: 'nc'
+
+# LLM Config
+llm_path: 'meta-llama/Llama-3.1-8B'
+llm_hidden_dim: 4096
+
+# LoRA Config
+lora_r: 16
+lora_alpha: 32
+lora_target_modules: "q_proj,v_proj,k_proj,o_proj,gate_proj,up_proj,down_proj"
+lora_dropout: 0.05
+
+# MAPR Router Config
+router_hidden_dim: 256
+router_dropout: 0.1
+kl_weight: 0.1
+
+# Stage 2 Training Hyperparameters
+router_lr: 1e-3
+projector_lr: 1e-4
+llm_lr: 2e-5
+stage2_batch_size: 8
+stage2_num_epochs: 10
+stage2_patience: 3
+
+# Node Classification (when task_type='nc')
+num_classes: null
+label_col: 'label'
+caption_col: 'caption'
+
+# Training Hyperparameters (Stage 1)
+learning_rate: 1e-4
+weight_decay: 0.01

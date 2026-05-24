@@ -17,6 +17,10 @@ ModelRegistry._models['DGMRec'] = DGMRec
 from .crlmmnar import CRLMMNAR
 ModelRegistry._models['CRLMMNAR'] = CRLMMNAR
 
+# Import and register Mario
+from .mario import Mario
+ModelRegistry._models['Mario'] = Mario
+
 __all__ = [
     'ModelRegistry',
     'register_model',
@@ -30,4 +34,5 @@ __all__ = [
     'CLUBSample',
     'DGMRec',
     'CRLMMNAR',
+    'Mario',
 ]

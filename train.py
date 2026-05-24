@@ -23,6 +23,7 @@ from data.dataloader import TrainDataLoader, EvalDataLoader
 from models.registry import ModelRegistry
 from models.base.abstract_recommender import GeneralRecommender
 from tasks.link_prediction import LinkPredictionTask
+from tasks.node_classification import NodeClassificationTask
 
 
 def get_model(model_name):
@@ -85,7 +86,13 @@ class Trainer:
         self.lr_scheduler = scheduler
 
         self.eval_type = config['eval_type']
-        self.task = LinkPredictionTask(config, model)
+        task_type = config.get('task_type', 'lp')
+        if task_type == 'nc':
+            self.task = NodeClassificationTask(config, model)
+            self.logger.info('[Trainer] Using Node Classification Task')
+        else:
+            self.task = LinkPredictionTask(config, model)
+            self.logger.info('[Trainer] Using Link Prediction Task')
 
     def _build_optimizer(self):
         """Build optimizer."""
@@ -444,6 +451,9 @@ if __name__ == '__main__':
     parser.add_argument('--missing_modality_type', type=str, default='all',
                         choices=['text', 't', 'image', 'v', 'visual', 'all'],
                         help='which modality to make missing (text/image/all)')
+    parser.add_argument('--task', '-t', type=str, default='lp',
+                        choices=['nc', 'lp', 'node_classification', 'link_prediction'],
+                        help='task type: nc (node classification) or lp (link prediction)')
 
     args, _ = parser.parse_known_args()
 
@@ -451,7 +461,8 @@ if __name__ == '__main__':
         'gpu_id': args.gpu_id,
         'missing_modal': args.missing_modal,
         'missing_ratio': eval(args.missing_ratio),
-        'missing_modality_type': args.missing_modality_type
+        'missing_modality_type': args.missing_modality_type,
+        'task_type': args.task if args.task in ['nc', 'node_classification'] else 'lp',
     }
 
-    quick_start(model=args.model, dataset=args.dataset, config_dict=config_dict, save_model=False)
+    quick_start(model=args.model, dataset=args.dataset, config_dict=config_dict, save_model=True)
